@@ -522,7 +522,13 @@ are at coarse horizontal resolution, where vertical gradients of opposite sign
 dominate. The implementation evaluates the gradient closure for
 ``(\theta_{li}, q_t)``, converts to a temperature variance through the
 thermodynamic Jacobian ``\partial T / \partial \theta_{li}``, and prescribes the
-``T``–``q_t`` correlation as a constant (`Tq_correlation_coefficient`).
+``T``–``q_t`` correlation as a constant (`Tq_correlation_coefficient`) by default.
+With `tq_correlation_model: diagnosed` the correlation is instead diagnosed from
+the gradient covariance ``\langle T' q_t' \rangle`` (the vertical cross term plus
+the horizontal geometric cross term ``c_g (c_{\Delta x} \Delta x_h)^2 \nabla_h \theta_{li}
+\cdot \nabla_h q_t``), clamped to ``\pm`` `sgs_correlation_max`; this requires the
+horizontal geometric variance term (`sgs_variance_horizontal_scale_factor` ``\neq 0``),
+since the vertical closure alone gives the collinear, singular limit above.
 
 The total grid-mean subgrid covariance adds the inter-subdomain spread to this
 intra-subdomain part [Lappen2001, Siebesma2007](@cite),
@@ -706,6 +712,10 @@ The full list of fields is in the docstring of
 | ``c_k``                                                             | `tke_surf_flux_coeff`                                                                            | `mixing_length_tke_surf_flux_coeff`                                                                     |
 | ``c_\sigma``                                                        | `diagnostic_covariance_coeff`, which is ``c_\sigma / 2`` (the closure carries the factor of two) | `diagnostic_covariance_coeff`                                                                           |
 | ``r_{T,q_t}``                                                       | `Tq_correlation_coefficient`                                                                     | `Tq_correlation_coefficient`                                                                            |
+| ``c_g``, ``c_{\Delta x}``                                            | `sgs_variance_geometric_coeff`, `sgs_variance_horizontal_scale_factor` (horizontal geometric SGS variance term; 0 disables it) | (provisional defaults) |
+| ``r_{\max}``                                                        | `sgs_variance_max_rel_std` (bound ``\sigma_q \le r_{\max} q_t``)                                    | (provisional default)  |
+| ``k``                                                               | `sgs_variance_geometric_Ri_factor` (Richardson weight ``Ri_0 = k\,Ri_{crit}`` on the geometric term; 0 = no weight) | (provisional default) |
+| ``r_{\mathrm{corr,max}}``                                            | `sgs_correlation_max` (clamp on the diagnosed ``T``–``q_t`` correlation)                          | (provisional default)  |
 | ``A``                                                               | `interface_entr_efficiency`                                                                      | `EDMF_interface_entr_efficiency`                                                                        |
 
 The generated [Configuration Options](configuration_options.md) table lists the

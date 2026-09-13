@@ -259,10 +259,13 @@ function precomputed_quantities(Y, atmos)
         base = (;
             ᶜT′T′ = zeros(axes(Y.c)),
             ᶜq′q′ = zeros(axes(Y.c)),
-            # T-q covariance and the correlation the quadrature samples (constant or
-            # diagnosed; see `set_tq_correlation!`)
-            ᶜT′q′ = zeros(axes(Y.c)),
+            # the T-q correlation the quadrature samples (constant or diagnosed; see
+            # `set_tq_correlation!`) and, for the diagnosed model, the gradient covariance
             ᶜcorr_Tq = zeros(axes(Y.c)),
+            (
+                atmos.tq_correlation_model isa DiagnosedTqCorrelation ?
+                (; ᶜT′q′ = zeros(axes(Y.c))) : (;)
+            )...,
         )
         uses_microphysics_quadrature_moments ?
         (; base..., ᶜsgs_moments = similar(Y.c, SGSMomentsNT)) :

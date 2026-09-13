@@ -1184,6 +1184,15 @@ function AtmosWater(config::AtmosConfig, params, ::Type{FT}) where {FT}
             "the rh form carries the geometric variance in q′q′ only).",
         )
     end
+    if tq_correlation_model isa DiagnosedTqCorrelation &&
+       !isnothing(params) &&
+       iszero(CAP.sgs_variance_horizontal_scale_factor(params))
+        error(
+            "tq_correlation_model: diagnosed requires the horizontal geometric variance " *
+            "term (sgs_variance_horizontal_scale_factor ≠ 0): with the vertical-gradient " *
+            "closure alone T′q′² = T′T′ q′q′ and the diagnosed correlation is identically ±1.",
+        )
+    end
 
     terminal_velocity_liquid =
         pa["fixed_terminal_velocity_liquid"] ?

@@ -2194,7 +2194,11 @@ the YAML key `tq_correlation_model`.
     `2 C ℓ² (∂_z θ_li)(∂_z q_tot)` plus the geometric cross term
     `c_g (c_Δx Δx_h)² ∇_h θ_li · ∇_h q_tot` (with the same weight and element filter as
     the variances), transformed to the T basis — falling back to the prescribed value
-    where the variances vanish (`"diagnosed"`; requires `TQHorizontalVariance`).
+    where the variances vanish (`"diagnosed"`; requires `TQHorizontalVariance` and a
+    nonzero `sgs_variance_horizontal_scale_factor`: with the vertical closure alone
+    `T′q′² = T′T′ q′q′` and the correlation would be identically ±1; the same limit is
+    approached where a stability weight fades the geometric term, so pair the diagnosed
+    model with `sgs_correlation_max < 1` when `sgs_variance_geometric_Ri_factor > 0`).
 """
 abstract type AbstractTqCorrelationModel end
 struct ConstantTqCorrelation <: AbstractTqCorrelationModel end
