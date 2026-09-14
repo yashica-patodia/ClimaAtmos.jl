@@ -129,6 +129,12 @@ not yet define. `FT` is the float type; `VFT1`, `VFT2`, and `VTF3` are the
     is faded out. Its `N²` blends the moist and dry buoyancy gradients with the
     grid-scale cloud indicator (condensate present or not). `0` (default) makes the
     weight exactly 1 [-].
+  - `sgs_variance_geometric_tke_scale`: Turbulence-kinetic-energy scale `tke₀` of the
+    weight `w = tke₀ / (tke₀ + max(tke, 0))` that multiplies the geometric variance
+    term (`sgs_geometric_tke_weight`), with `tke` the prognostic EDMF TKE: the term is
+    faded where the closure reports an active turbulent (mixed) layer and kept where
+    the TKE has collapsed. Multiplies the Richardson weight when both are set. `0`
+    (default) makes the weight exactly 1 [m^2 s^-2].
   - `sgs_correlation_max`: Clamp `r` on the magnitude of the diagnosed SGS T–q
     correlation, `ρ = clamp(T′q′ / √(T′T′ q′q′), ±r)` (`tq_correlation_model: diagnosed`). `1` by default [-].
   - `Tq_correlation_coefficient`: Default correlation between `T'` and `q_tot'`
@@ -219,6 +225,7 @@ Base.@kwdef struct TurbulenceConvectionParameters{FT, VFT1, VFT2, VTF3} <: ATCP
     sgs_variance_horizontal_scale_factor::FT
     sgs_variance_max_rel_std::FT
     sgs_variance_geometric_Ri_factor::FT
+    sgs_variance_geometric_tke_scale::FT
     sgs_correlation_max::FT
     Tq_correlation_coefficient::FT
     static_stab_coeff::FT

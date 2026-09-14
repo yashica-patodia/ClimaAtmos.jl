@@ -242,6 +242,31 @@ carries the variance, so the geometric term is faded out to avoid counting it tw
 end
 
 """
+    sgs_geometric_tke_weight(tke, tke₀)
+
+Weight `w ∈ (0, 1]` applied to the geometric (resolved-gradient) SGS variance:
+
+    w = tke₀ / (tke₀ + max(tke, 0))
+
+with `tke` the prognostic EDMF turbulence kinetic energy and
+`tke₀ = sgs_variance_geometric_tke_scale` (`tke₀ ≤ 0` returns exactly `1`, no weight).
+It is the turbulence-state counterpart of `sgs_geometric_stability_weight`: the
+geometric term is faded where the closure itself reports an active turbulent (mixed)
+layer, whose variance the turbulence closure already represents, and kept where the
+TKE has collapsed (the stably stratified free troposphere, where the mixing length sits
+at its floor). The prognostic TKE is Picard-invariant within a step, carries the
+closure's memory (dissipation and transport) and does not depend on the
+cloud-condensate flag, so the weight is smooth in time and does not use the grid-scale
+cloud indicator. `tke` is clipped at zero (the prognostic field can be slightly
+negative). Requires prognostic TKE (`use_prognostic_tke`); checked at configuration
+time in `get_atmos` and again in `set_covariance_cache!`.
+"""
+@inline function sgs_geometric_tke_weight(tke, tke₀)
+    FT = typeof(tke)
+    return ifelse(tke₀ > 0, tke₀ / (tke₀ + max(tke, zero(FT))), one(FT))
+end
+
+"""
     element_linear!(ᶜf)
 
 Replace `ᶜf` in place by its element-linear (bilinear, corner-node) lumped restriction:
@@ -350,8 +375,10 @@ end
 """
     add_geometric!(ᶜdst, ᶜw, geo_h, ᶜinv)
 
-Add the geometric variance `geo_h ᶜinv` to `ᶜdst`, multiplied by the stability weight
-`ᶜw` when one is in use (`ᶜw === nothing` adds the unweighted term, bitwise as before).
+Add the geometric variance `geo_h ᶜinv` to `ᶜdst`, multiplied by the geometric-term
+weight `ᶜw` when one is in use (`p.precomputed.ᶜgeo_weight`, the product of the
+Richardson and TKE weights `sgs_geometric_stability_weight` × `sgs_geometric_tke_weight`;
+`ᶜw === nothing` adds the unweighted term, bitwise as before).
 """
 add_geometric!(ᶜdst, ::Nothing, geo_h, ᶜinv) = (@. ᶜdst += geo_h * ᶜinv; nothing)
 add_geometric!(ᶜdst, ᶜw, geo_h, ᶜinv) = (@. ᶜdst += ᶜw * (geo_h * ᶜinv); nothing)
@@ -400,9 +427,12 @@ Pipeline:
 
 Options on the geometric term (all default to the plain term): the field it is built
 on (`sgs_variance_horizontal_form`), a Richardson-number stability weight
-(`sgs_variance_geometric_Ri_factor`; `sgs_geometric_stability_weight`), a within-element
-filter of the gradient invariants (`sgs_variance_element_filter`; `element_linear!`) and
-the T–q correlation model (`tq_correlation_model`).
+(`sgs_variance_geometric_Ri_factor`; `sgs_geometric_stability_weight`), a TKE weight
+(`sgs_variance_geometric_tke_scale`; `sgs_geometric_tke_weight`; the two weights
+multiply and the applied weight is cached in `ᶜgeo_weight`, diagnostic
+`sgs_geo_weight`), a within-element filter of the gradient invariants
+(`sgs_variance_element_filter`; `element_linear!`) and the T–q correlation model
+(`tq_correlation_model`).
 """
 function set_covariance_cache!(Y, p, thermo_params)
     # Covariance fields are only allocated when the configuration needs them.
@@ -436,41 +466,70 @@ function set_covariance_cache!(Y, p, thermo_params)
     diag_corr = p.atmos.tq_correlation_model isa DiagnosedTqCorrelation
     elem_filter = p.atmos.sgs_variance_element_filter isa ElementLinearFilter
 
-    # Stability weight on the geometric term (`sgs_geometric_stability_weight`):
-    # Ri₀ = k Ri_crit with k = `sgs_variance_geometric_Ri_factor`; k = 0 (default) means
-    # no weight (`ᶜw === nothing`, the term is added unweighted). The weight and the N²
-    # it sees are lazy broadcasts evaluated inside the geometric additions (no scratch).
-    # N² is the model's chain-rule coefficients blended with the GRID-SCALE cloud
-    # indicator (1 where grid-mean cloud condensate is present, 0 otherwise — the
-    # `GridScaleCloud` cloud fraction) instead of the diagnosed SGS cloud fraction:
-    # `ᶜbuoygrad` blends with cf 0.1-0.2 in cloud-topped mixed layers, so N² stays
-    # positive there and the weight would not fade; with the indicator those layers
-    # register as moist-unstable. `ᶜbuoygrad` itself is unchanged. Cloud condensate only
-    # (`_grid_mean_cloud_condensate`): precipitation falling through subsaturated air
-    # does not saturate it.
+    # Weights on the geometric term, materialized once per call into the persistent
+    # `p.precomputed.ᶜgeo_weight` (also the `sgs_geo_weight` diagnostic):
+    #  * the Richardson (stability) weight `sgs_geometric_stability_weight`,
+    #    Ri₀ = k Ri_crit with k = `sgs_variance_geometric_Ri_factor`. Its N² is the
+    #    model's chain-rule coefficients blended with the GRID-SCALE cloud indicator
+    #    (1 where grid-mean cloud condensate is present, 0 otherwise — the
+    #    `GridScaleCloud` cloud fraction) instead of the diagnosed SGS cloud fraction:
+    #    `ᶜbuoygrad` blends with cf 0.1-0.2 in cloud-topped mixed layers, so N² stays
+    #    positive there and the weight would not fade; with the indicator those layers
+    #    register as moist-unstable. `ᶜbuoygrad` itself is unchanged. Cloud condensate
+    #    only (`_grid_mean_cloud_condensate`): precipitation falling through
+    #    subsaturated air does not saturate it.
+    #  * the TKE weight `sgs_geometric_tke_weight`, tke₀ =
+    #    `sgs_variance_geometric_tke_scale`, on the prognostic EDMF TKE `Y.c.ρtke / Y.c.ρ`.
+    # Both default to off (k = 0, tke₀ = 0): then `ᶜw === nothing`, the term is added
+    # unweighted (bitwise as before) and `ᶜgeo_weight` is set to 1 so the diagnostic
+    # reports the applied weight. When both are on they multiply.
     Ri₀ =
         CAP.sgs_variance_geometric_Ri_factor(p.params) *
         CAP.Ri_crit(CAP.turbconv_params(p.params))
-    ᶜw = if use_geometric && Ri₀ > 0
-        (; ᶜbg_coeffs, ᶜstrain_rate_norm) = p.precomputed
-        ᶜq_lcl_gm, ᶜq_icl_gm =
-            _grid_mean_cloud_condensate(Y, p, p.atmos.microphysics_model)
-        ᶜlg_w = Fields.local_geometry_field(Y.c)
-        FT_w = eltype(p.params)
-        ᶜN²_w = @. lazy(
-            blended_N²(
-                ᶜbg_coeffs,
-                ifelse(
-                    TD.has_condensate(thermo_params, ᶜq_lcl_gm + ᶜq_icl_gm),
-                    one(FT_w),
-                    zero(FT_w),
-                ),
-                projected_vector_data(C3, ᶜgradᵥ_θ_liq_ice, ᶜlg_w),
-                projected_vector_data(C3, ᶜgradᵥ_q_tot, ᶜlg_w),
-            ),
+    tke₀ = CAP.sgs_variance_geometric_tke_scale(p.params)
+    use_ri_weight = use_geometric && Ri₀ > 0
+    use_tke_weight = use_geometric && tke₀ > 0
+    if use_tke_weight && !use_prognostic_tke(p.atmos.turbconv_model)
+        error(
+            "sgs_variance_geometric_tke_scale > 0 requires prognostic TKE " *
+            "(an EDMF turbulence-convection model with prognostic_tke: true)",
         )
-        @. lazy(sgs_geometric_stability_weight(ᶜN²_w, ᶜstrain_rate_norm, Ri₀))
+    end
+    FT_w = eltype(p.params)
+    ᶜw = if use_ri_weight || use_tke_weight
+        (; ᶜgeo_weight) = p.precomputed
+        if use_ri_weight
+            (; ᶜbg_coeffs, ᶜstrain_rate_norm) = p.precomputed
+            ᶜq_lcl_gm, ᶜq_icl_gm =
+                _grid_mean_cloud_condensate(Y, p, p.atmos.microphysics_model)
+            ᶜlg_w = Fields.local_geometry_field(Y.c)
+            ᶜN²_w = @. lazy(
+                blended_N²(
+                    ᶜbg_coeffs,
+                    ifelse(
+                        TD.has_condensate(thermo_params, ᶜq_lcl_gm + ᶜq_icl_gm),
+                        one(FT_w),
+                        zero(FT_w),
+                    ),
+                    projected_vector_data(C3, ᶜgradᵥ_θ_liq_ice, ᶜlg_w),
+                    projected_vector_data(C3, ᶜgradᵥ_q_tot, ᶜlg_w),
+                ),
+            )
+            @. ᶜgeo_weight =
+                sgs_geometric_stability_weight(ᶜN²_w, ᶜstrain_rate_norm, Ri₀)
+        else
+            @. ᶜgeo_weight = one(FT_w)
+        end
+        if use_tke_weight
+            @. ᶜgeo_weight *=
+                sgs_geometric_tke_weight(specific(Y.c.ρtke, Y.c.ρ), tke₀)
+        end
+        ᶜgeo_weight
     else
+        if use_geometric
+            (; ᶜgeo_weight) = p.precomputed
+            @. ᶜgeo_weight = one(FT_w)
+        end
         nothing
     end
 

@@ -715,6 +715,7 @@ The full list of fields is in the docstring of
 | ``c_g``, ``c_{\Delta x}``                                            | `sgs_variance_geometric_coeff`, `sgs_variance_horizontal_scale_factor` (horizontal geometric SGS variance term; 0 disables it) | (provisional defaults) |
 | ``r_{\max}``                                                        | `sgs_variance_max_rel_std` (bound ``\sigma_q \le r_{\max} q_t``)                                    | (provisional default)  |
 | ``k``                                                               | `sgs_variance_geometric_Ri_factor` (Richardson weight ``Ri_0 = k\,Ri_{crit}`` on the geometric term; 0 = no weight) | (provisional default) |
+| ``\mathrm{tke}_0``                                                  | `sgs_variance_geometric_tke_scale` (TKE weight ``w = \mathrm{tke}_0/(\mathrm{tke}_0 + \max(\mathrm{tke},0))`` on the geometric term; 0 = no weight) | (provisional default) |
 | ``r_{\mathrm{corr,max}}``                                            | `sgs_correlation_max` (clamp on the diagnosed ``T``–``q_t`` correlation)                          | (provisional default)  |
 | ``A``                                                               | `interface_entr_efficiency`                                                                      | `EDMF_interface_entr_efficiency`                                                                        |
 

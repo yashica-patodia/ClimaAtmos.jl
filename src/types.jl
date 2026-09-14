@@ -2197,8 +2197,9 @@ the YAML key `tq_correlation_model`.
     where the variances vanish (`"diagnosed"`; requires `TQHorizontalVariance` and a
     nonzero `sgs_variance_horizontal_scale_factor`: with the vertical closure alone
     `T′q′² = T′T′ q′q′` and the correlation would be identically ±1; the same limit is
-    approached where a stability weight fades the geometric term, so pair the diagnosed
-    model with `sgs_correlation_max < 1` when `sgs_variance_geometric_Ri_factor > 0`).
+    approached where a weight fades the geometric term, so pair the diagnosed model
+    with `sgs_correlation_max < 1` when `sgs_variance_geometric_Ri_factor > 0` or
+    `sgs_variance_geometric_tke_scale > 0`).
 """
 abstract type AbstractTqCorrelationModel end
 struct ConstantTqCorrelation <: AbstractTqCorrelationModel end

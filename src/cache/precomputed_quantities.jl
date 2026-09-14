@@ -262,6 +262,10 @@ function precomputed_quantities(Y, atmos)
             # the T-q correlation the quadrature samples (constant or diagnosed; see
             # `set_tq_correlation!`) and, for the diagnosed model, the gradient covariance
             ᶜcorr_Tq = zeros(axes(Y.c)),
+            # weight applied to the horizontal geometric variance term (see
+            # `set_covariance_cache!`; diagnostic `sgs_geo_weight`): 1 where the term
+            # is on and unweighted, 0 where the term is inactive
+            ᶜgeo_weight = zeros(axes(Y.c)),
             (
                 atmos.tq_correlation_model isa DiagnosedTqCorrelation ?
                 (; ᶜT′q′ = zeros(axes(Y.c))) : (;)

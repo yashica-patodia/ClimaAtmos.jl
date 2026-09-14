@@ -12,6 +12,11 @@ main
   `env_q_tot_temperature_{covariance,correlation}` diagnostics now report the sampled values); a Richardson-number weight fading the term
   where the resolved flow is turbulent (`sgs_variance_geometric_Ri_factor`, 0 = off); and an element-linear (lumped GLL{2}) restriction of
   the gradient invariants that removes the spectral-element mesh imprint (`sgs_variance_element_filter: linear`).
+- (branch `zs/sgs_variance_weights`) ![][badge-✨feature/enhancement] A TKE weight `tke₀ / (tke₀ + max(tke, 0))` on the prognostic EDMF TKE
+  fading the geometric SGS variance term where the closure reports an active turbulent layer (`sgs_variance_geometric_tke_scale`, 0 = off;
+  requires prognostic TKE; multiplies the Richardson weight when both are set). The weights are materialized once per call into
+  `p.precomputed.ᶜgeo_weight` and the applied weight is reported by the new `sgs_geo_weight` diagnostic (1 = term on and unweighted, 0 =
+  term inactive).
 
 0.42.10
 -------
