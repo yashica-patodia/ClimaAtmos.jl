@@ -673,7 +673,7 @@ end
 
 Build the field choice for the geometric SGS variance term selected by the
 `sgs_variance_horizontal_form` config key: `"tq"` → `TQHorizontalVariance()`,
-`"rh"` → `RHHorizontalVariance()`.
+`"rh"` → `RHHorizontalVariance()`, `"isentropic"` → `IsentropicHorizontalVariance()`.
 """
 function get_sgs_variance_horizontal_form(parsed_args)
     form = parsed_args["sgs_variance_horizontal_form"]
@@ -681,8 +681,12 @@ function get_sgs_variance_horizontal_form(parsed_args)
         TQHorizontalVariance()
     elseif form == "rh"
         RHHorizontalVariance()
+    elseif form == "isentropic"
+        IsentropicHorizontalVariance()
     else
-        error("Invalid sgs_variance_horizontal_form $(form). Use: tq, rh")
+        error(
+            "Invalid sgs_variance_horizontal_form $(form). Use: tq, rh, isentropic",
+        )
     end
 end
 
@@ -1177,11 +1181,12 @@ function AtmosWater(config::AtmosConfig, params, ::Type{FT}) where {FT}
     tq_correlation_model = get_tq_correlation_model(pa)
     sgs_variance_element_filter = get_sgs_variance_element_filter(pa)
     if tq_correlation_model isa DiagnosedTqCorrelation &&
-       sgs_variance_horizontal_form isa RHHorizontalVariance
+       sgs_variance_horizontal_form isa
+       Union{RHHorizontalVariance, IsentropicHorizontalVariance}
         error(
             "tq_correlation_model: diagnosed requires sgs_variance_horizontal_form: tq " *
             "(the diagnosed correlation is built from the θ and q gradient covariances; " *
-            "the rh form carries the geometric variance in q′q′ only).",
+            "the rh and isentropic forms carry the geometric variance in q′q′ only).",
         )
     end
     if tq_correlation_model isa DiagnosedTqCorrelation &&
@@ -1191,6 +1196,16 @@ function AtmosWater(config::AtmosConfig, params, ::Type{FT}) where {FT}
             "tq_correlation_model: diagnosed requires the horizontal geometric variance " *
             "term (sgs_variance_horizontal_scale_factor ≠ 0): with the vertical-gradient " *
             "closure alone T′q′² = T′T′ q′q′ and the diagnosed correlation is identically ±1.",
+        )
+    end
+
+    if sgs_variance_horizontal_form isa IsentropicHorizontalVariance &&
+       !isnothing(params) &&
+       !(CAP.sgs_variance_isentropic_min_dtheta_dz(params) > 0)
+        error(
+            "sgs_variance_horizontal_form: isentropic requires " *
+            "sgs_variance_isentropic_min_dtheta_dz > 0 (it regularises " *
+            "(∂q/∂z)/(∂θ_li/∂z) in neutral layers; 0 gives 0/0).",
         )
     end
 

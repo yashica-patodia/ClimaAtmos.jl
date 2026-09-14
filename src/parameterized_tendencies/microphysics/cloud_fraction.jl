@@ -67,9 +67,9 @@ function set_covariance_cache_and_cloud_fraction!(Y, p)
             projected_vector_data(C3, ᶜgradᵥ_θ_liq_ice, ᶜlg),
             projected_vector_data(C3, ᶜgradᵥ_q_tot, ᶜlg),
         )
-        # Cache SGS covariances (no-op for dry/0M/GridScaleCloud configs).
-        # For EDMF: gradients are precomputed above.
-        # For non-EDMF: gradients are computed inside set_covariance_cache!.
+        # Cache SGS covariances (no-op for dry/0M/GridScaleCloud configs). The vertical
+        # gradients and N² coefficients were materialized above by
+        # set_buoyancy_gradient_inputs! for every turbconv model.
         set_covariance_cache!(Y, p, thermo_params)
         set_cloud_fraction!(Y, p, microphysics_model, cloud_model)
         return nothing
@@ -267,6 +267,33 @@ time in `get_atmos` and again in `set_covariance_cache!`.
 end
 
 """
+    isentropic_slope_ratio(∂q∂z, ∂θ∂z, θz_min, r_cap)
+
+Ratio `r = (∂q_tot/∂z)(∂θ_li/∂z) / ((∂θ_li/∂z)² + θz_min²)`, clamped to `±r_cap`, that
+converts the horizontal gradient of `θ_li` into the vertical displacement a horizontal
+excursion along a sloping `θ_li` surface implies, times the vertical `q_tot` gradient
+(`IsentropicHorizontalVariance`). It is the regularised `∂q/∂z / ∂θ/∂z`: the
+regularisation `θz_min` (`sgs_variance_isentropic_min_dtheta_dz`) keeps it finite where
+the layer is neutral and the cap `r_cap` (`sgs_variance_isentropic_slope_cap`) bounds
+the slantwise amplification; both bind mainly in the boundary layer.
+"""
+@inline function isentropic_slope_ratio(∂q∂z, ∂θ∂z, θz_min, r_cap)
+    r = ∂q∂z * ∂θ∂z / (∂θ∂z^2 + θz_min^2)
+    return clamp(r, -r_cap, r_cap)
+end
+
+"""
+    isentropic_gradient_invariant(inv_q, inv_θq, inv_θ, r)
+
+`|∇_h q_tot − r ∇_h θ_li|² = |∇_h q|² − 2 r (∇_h θ_li · ∇_h q) + r² |∇_h θ_li|²`, the
+squared horizontal gradient of `q_tot` ALONG the `θ_li` surface, from the three DSS'd
+gradient invariants and the slope ratio `r` (`isentropic_slope_ratio`); floored at
+zero against round-off.
+"""
+@inline isentropic_gradient_invariant(inv_q, inv_θq, inv_θ, r) =
+    max(inv_q - 2 * r * inv_θq + r^2 * inv_θ, zero(inv_q))
+
+"""
     element_linear!(ᶜf)
 
 Replace `ᶜf` in place by its element-linear (bilinear, corner-node) lumped restriction:
@@ -305,6 +332,35 @@ function element_linear!(ᶜf)
     w = reshape(pw, size(pw)..., 1, 1)
     θ = sum(wf .* Bi .* Bj; dims = (2, 3)) ./ sum(w .* Bi .* Bj; dims = (2, 3))
     pf .= dropdims(sum(θ .* Bi .* Bj; dims = (6, 7)); dims = (6, 7))
+    return nothing
+end
+
+"""
+    hgrad_invariants_pair!(ᶜinv1, ᶜinv2, ᶜinv12, ᶜψ1, ᶜψ2, p)
+
+Write `|∇_h ψ1|²`, `|∇_h ψ2|²` and `∇_h ψ1 · ∇_h ψ2` into the three center fields from ONE
+evaluation (and DSS) of each horizontal gradient, using both `C12` scratch buffers
+(`ᶜtemp_C12`, `ᶜtemp_C12_2`; the second must be allocated for the configuration).
+Used by the isentropic geometric variance form.
+"""
+function hgrad_invariants_pair!(ᶜinv1, ᶜinv2, ᶜinv12, ᶜψ1, ᶜψ2, p)
+    buf = p.scratch.ᶜC12_dss_buffer
+    if buf !== nothing
+        ᶜg1 = p.scratch.ᶜtemp_C12
+        ᶜg2 = p.scratch.ᶜtemp_C12_2
+        @assert ᶜg2 !== nothing "hgrad_invariants_pair! needs the ᶜtemp_C12_2 scratch buffer"
+        @. ᶜg1 = gradₕ(ᶜψ1)
+        @. ᶜg2 = gradₕ(ᶜψ2)
+        Spaces.weighted_dss!(ᶜg1, buf)
+        Spaces.weighted_dss!(ᶜg2, buf)
+        @. ᶜinv1 = norm_sqr(ᶜg1)
+        @. ᶜinv2 = norm_sqr(ᶜg2)
+        @. ᶜinv12 = dot(Geometry.Contravariant12Vector(ᶜg1), ᶜg2)
+    else
+        @. ᶜinv1 = norm_sqr(gradₕ(ᶜψ1))
+        @. ᶜinv2 = norm_sqr(gradₕ(ᶜψ2))
+        @. ᶜinv12 = dot(Geometry.Contravariant12Vector(gradₕ(ᶜψ1)), gradₕ(ᶜψ2))
+    end
     return nothing
 end
 
@@ -426,7 +482,8 @@ Pipeline:
     invariant under it)
 
 Options on the geometric term (all default to the plain term): the field it is built
-on (`sgs_variance_horizontal_form`), a Richardson-number stability weight
+on (`sgs_variance_horizontal_form`: `tq`, `rh`, or `isentropic` = the gradient of q_tot
+along the θ_li surface with its own validity weight 1[N² > 0]), a Richardson-number stability weight
 (`sgs_variance_geometric_Ri_factor`; `sgs_geometric_stability_weight`), a TKE weight
 (`sgs_variance_geometric_tke_scale`; `sgs_geometric_tke_weight`; the two weights
 multiply and the applied weight is cached in `ᶜgeo_weight`, diagnostic
@@ -463,6 +520,8 @@ function set_covariance_cache!(Y, p, thermo_params)
         zero(c_Δx)
     end
     rh_form = p.atmos.sgs_variance_horizontal_form isa RHHorizontalVariance
+    isen_form =
+        p.atmos.sgs_variance_horizontal_form isa IsentropicHorizontalVariance
     diag_corr = p.atmos.tq_correlation_model isa DiagnosedTqCorrelation
     elem_filter = p.atmos.sgs_variance_element_filter isa ElementLinearFilter
 
@@ -496,25 +555,34 @@ function set_covariance_cache!(Y, p, thermo_params)
         )
     end
     FT_w = eltype(p.params)
-    ᶜw = if use_ri_weight || use_tke_weight
+    # [IsentropicHorizontalVariance] the term is defined only where a stably stratified
+    # moist isentrope exists: it carries the validity weight 1[N² > 0] on the same
+    # saturation-conditioned N² the Richardson weight uses (no shear, no threshold).
+    use_isen_step = use_geometric && isen_form
+    ᶜN²_w = if use_ri_weight || use_isen_step
+        (; ᶜbg_coeffs) = p.precomputed
+        ᶜq_lcl_gm, ᶜq_icl_gm =
+            _grid_mean_cloud_condensate(Y, p, p.atmos.microphysics_model)
+        ᶜlg_w = Fields.local_geometry_field(Y.c)
+        @. lazy(
+            blended_N²(
+                ᶜbg_coeffs,
+                ifelse(
+                    TD.has_condensate(thermo_params, ᶜq_lcl_gm + ᶜq_icl_gm),
+                    one(FT_w),
+                    zero(FT_w),
+                ),
+                projected_vector_data(C3, ᶜgradᵥ_θ_liq_ice, ᶜlg_w),
+                projected_vector_data(C3, ᶜgradᵥ_q_tot, ᶜlg_w),
+            ),
+        )
+    else
+        nothing
+    end
+    ᶜw = if use_ri_weight || use_tke_weight || use_isen_step
         (; ᶜgeo_weight) = p.precomputed
         if use_ri_weight
-            (; ᶜbg_coeffs, ᶜstrain_rate_norm) = p.precomputed
-            ᶜq_lcl_gm, ᶜq_icl_gm =
-                _grid_mean_cloud_condensate(Y, p, p.atmos.microphysics_model)
-            ᶜlg_w = Fields.local_geometry_field(Y.c)
-            ᶜN²_w = @. lazy(
-                blended_N²(
-                    ᶜbg_coeffs,
-                    ifelse(
-                        TD.has_condensate(thermo_params, ᶜq_lcl_gm + ᶜq_icl_gm),
-                        one(FT_w),
-                        zero(FT_w),
-                    ),
-                    projected_vector_data(C3, ᶜgradᵥ_θ_liq_ice, ᶜlg_w),
-                    projected_vector_data(C3, ᶜgradᵥ_q_tot, ᶜlg_w),
-                ),
-            )
+            (; ᶜstrain_rate_norm) = p.precomputed
             @. ᶜgeo_weight =
                 sgs_geometric_stability_weight(ᶜN²_w, ᶜstrain_rate_norm, Ri₀)
         else
@@ -523,6 +591,9 @@ function set_covariance_cache!(Y, p, thermo_params)
         if use_tke_weight
             @. ᶜgeo_weight *=
                 sgs_geometric_tke_weight(specific(Y.c.ρtke, Y.c.ρ), tke₀)
+        end
+        if use_isen_step
+            @. ᶜgeo_weight *= ifelse(ᶜN²_w > 0, one(FT_w), zero(FT_w))
         end
         ᶜgeo_weight
     else
@@ -576,7 +647,7 @@ function set_covariance_cache!(Y, p, thermo_params)
     # q′q′ as a saturation-excess (RH) width, so σ_T keeps the base vertical closure.
     # The invariants are those of the DSS'd gradient (`hgrad_invariant!`), optionally
     # replaced by their element-linear restriction (`element_linear!`).
-    if use_geometric && !rh_form
+    if use_geometric && !rh_form && !isen_form
         (; ᶜT, ᶜq_tot_nonneg, ᶜq_liq, ᶜq_ice) = p.precomputed
         ᶜθ_li = p.scratch.ᶜtemp_scalar_3
         @. ᶜθ_li = TD.liquid_ice_pottemp(
@@ -632,10 +703,64 @@ function set_covariance_cache!(Y, p, thermo_params)
             @. ᶜrh = ᶜq_tot_nonneg / max(ᶜq_sat, eps(FT))
             hgrad_invariant!(ᶜinv_q, ᶜrh, p)
             @. ᶜinv_q *= ᶜq_sat^2
+        elseif isen_form
+            # [IsentropicHorizontalVariance] the gradient of q_tot ALONG the θ_li surface,
+            # |∇_θ q|² = |∇_h q − r ∇_h θ_li|², r = regularised (∂q/∂z)/(∂θ_li/∂z)
+            # (`isentropic_slope_ratio`): a horizontal excursion δ on a sloping isentrope
+            # carries the parcel down/up by r-weighted amounts, so aligned (warm = moist)
+            # gradients amplify and anti-aligned ones cancel the saturation variance. No
+            # θ′θ′ term (θ_li is constant along the surface). The validity weight 1[N² > 0]
+            # (weight block above) zeroes the WHOLE term where the layer is moist-neutral or
+            # unstable (there is no isentrope to displace along and the SGS variability is
+            # convective, carried by the EDMF plumes) — the "form × step" configuration of
+            # the a-priori screen, not the "r → 0 only" variant, under which the term would
+            # revert to |∇_h q|². The three invariants are
+            # filtered individually when the element filter is on. `ᶜtemp_scalar_2` is free
+            # (θ′θ′ → T′T′ done), `_3` (θ_li) and `_6` (cross term; the diagnosed
+            # correlation is rejected with this form at configuration time).
+            (; ᶜT, ᶜq_liq, ᶜq_ice) = p.precomputed
+            ᶜθ_li_i = p.scratch.ᶜtemp_scalar_3
+            @. ᶜθ_li_i = TD.liquid_ice_pottemp(
+                thermo_params,
+                ᶜT,
+                Y.c.ρ,
+                ᶜq_tot_nonneg,
+                ᶜq_liq,
+                ᶜq_ice,
+            )
+            ᶜinv_θ_i = p.scratch.ᶜtemp_scalar_2
+            ᶜinv_θq_i = p.scratch.ᶜtemp_scalar_6
+            hgrad_invariants_pair!(
+                ᶜinv_θ_i,
+                ᶜinv_q,
+                ᶜinv_θq_i,
+                ᶜθ_li_i,
+                ᶜq_tot_nonneg,
+                p,
+            )
+            if elem_filter
+                element_linear!(ᶜinv_θ_i)
+                element_linear!(ᶜinv_θq_i)
+                element_linear!(ᶜinv_q)
+            end
+            θz_min = CAP.sgs_variance_isentropic_min_dtheta_dz(p.params)
+            r_cap = CAP.sgs_variance_isentropic_slope_cap(p.params)
+            ᶜlg_i = Fields.local_geometry_field(Y.c)
+            @. ᶜinv_q = isentropic_gradient_invariant(
+                ᶜinv_q,
+                ᶜinv_θq_i,
+                ᶜinv_θ_i,
+                isentropic_slope_ratio(
+                    projected_vector_data(C3, ᶜgradᵥ_q_tot, ᶜlg_i),
+                    projected_vector_data(C3, ᶜgradᵥ_θ_liq_ice, ᶜlg_i),
+                    θz_min,
+                    r_cap,
+                ),
+            )
         else
             hgrad_invariant!(ᶜinv_q, ᶜq_tot_nonneg, p)
         end
-        elem_filter && element_linear!(ᶜinv_q)
+        elem_filter && !isen_form && element_linear!(ᶜinv_q)
         add_geometric!(ᶜq′q′, ᶜw, geo_h, ᶜinv_q)
     end
 

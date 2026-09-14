@@ -17,6 +17,11 @@ main
   requires prognostic TKE; multiplies the Richardson weight when both are set). The weights are materialized once per call into
   `p.precomputed.ᶜgeo_weight` and the applied weight is reported by the new `sgs_geo_weight` diagnostic (1 = term on and unweighted, 0 =
   term inactive).
+- (branch `zs/sgs_variance_weights`) ![][badge-✨feature/enhancement] An isentropic form of the geometric SGS variance term
+  (`sgs_variance_horizontal_form: isentropic`): `q′q′` carries `|∇_h q_tot − r ∇_h θ_li|²`, the gradient of `q_tot` along the `θ_li` surface
+  with `r` the regularised, capped `(∂q_tot/∂z)/(∂θ_li/∂z)` (`sgs_variance_isentropic_min_dtheta_dz`, `sgs_variance_isentropic_slope_cap`), no
+  `θ′θ′` term, and its own validity weight `1[N² > 0]` on the saturation-conditioned moist `N²` that zeroes the whole term where the layer is
+  moist-neutral or unstable (reported by `sgs_geo_weight`).
 
 0.42.10
 -------

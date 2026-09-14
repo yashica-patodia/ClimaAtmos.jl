@@ -2175,10 +2175,22 @@ Field on which the horizontal resolved-gradient (geometric) SGS variance term
     `RH = q_tot / q_sat(T, ρ)`, the linearised resolved gradient of the saturation
     excess `q_tot − q_sat`, so the θ- and q-gradient contributions cancel or add as they
     do in the resolved fields rather than through a prescribed correlation (`"rh"`).
+  - `IsentropicHorizontalVariance`: no `θ′θ′` term; `q′q′` carries
+    `|∇_h q_tot − r ∇_h θ_li|²`, the squared gradient of `q_tot` ALONG the `θ_li`
+    surface, with `r` the regularised, capped `(∂q_tot/∂z)/(∂θ_li/∂z)`
+    (`sgs_variance_isentropic_min_dtheta_dz`, `sgs_variance_isentropic_slope_cap`):
+    the advection–condensation picture in which subgrid moisture variance at fixed
+    height comes from slantwise excursions along sloping isentropes, so aligned
+    (warm = moist) gradients amplify and anti-aligned ones cancel. The term carries
+    its own validity weight `1[N² > 0]` on the saturation-conditioned moist `N²`, which
+    zeroes the WHOLE term where the layer is moist-neutral or unstable (no isentrope
+    to move along; the SGS variability there is convective) rather than reverting to
+    the horizontal gradient (`"isentropic"`).
 """
 abstract type AbstractSGSHorizontalVarianceForm end
 struct TQHorizontalVariance <: AbstractSGSHorizontalVarianceForm end
 struct RHHorizontalVariance <: AbstractSGSHorizontalVarianceForm end
+struct IsentropicHorizontalVariance <: AbstractSGSHorizontalVarianceForm end
 
 """
     AbstractTqCorrelationModel

@@ -556,6 +556,10 @@ function TurbulenceConvectionParameters(
         # diagnosed T-q correlation (`tq_correlation_model: diagnosed`).
         sgs_variance_geometric_Ri_factor = FT(0),
         sgs_variance_geometric_tke_scale = FT(0),
+        # Isentropic geometric variance form (`sgs_variance_horizontal_form: isentropic`):
+        # regularisation of ∂θ_li/∂z [K/m] and cap on the slope ratio [kg/kg/K].
+        sgs_variance_isentropic_min_dtheta_dz = FT(1e-3),
+        sgs_variance_isentropic_slope_cap = FT(5e-4),
         sgs_correlation_max = FT(1),
         # Cloud-fraction floor release shape (see `_compute_cloud_fraction`):
         # margin = abs_margin = sharpness = 1, residual = 0 release the floor on

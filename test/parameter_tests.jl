@@ -119,6 +119,8 @@ end
         @test CAP.sgs_variance_max_rel_std(tc) == FT(0.5)
         @test CAP.sgs_variance_geometric_Ri_factor(tc) == FT(0)
         @test CAP.sgs_variance_geometric_tke_scale(tc) == FT(0)
+        @test CAP.sgs_variance_isentropic_min_dtheta_dz(tc) == FT(1e-3)
+        @test CAP.sgs_variance_isentropic_slope_cap(tc) == FT(5e-4)
         @test CAP.sgs_correlation_max(tc) == FT(1)
     end
     # A run toml can enable the term.
@@ -129,6 +131,12 @@ end
   [sgs_variance_horizontal_scale_factor]
   value = 2.0
   type = "float"
+  [sgs_variance_isentropic_min_dtheta_dz]
+  value = 2.0e-3
+  type = "float"
+  [sgs_variance_isentropic_slope_cap]
+  value = 1.0e-3
+  type = "float"
   """,
         )
         flush(io)
@@ -138,6 +146,8 @@ end
         )
         tc = CA.ClimaAtmosParameters(config).turbconv_params
         @test CAP.sgs_variance_horizontal_scale_factor(tc) == 2.0
+        @test CAP.sgs_variance_isentropic_min_dtheta_dz(tc) == 2.0e-3
+        @test CAP.sgs_variance_isentropic_slope_cap(tc) == 1.0e-3
     end
 end
 
