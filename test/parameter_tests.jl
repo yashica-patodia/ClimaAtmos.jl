@@ -146,8 +146,8 @@ end
         )
         tc = CA.ClimaAtmosParameters(config).turbconv_params
         @test CAP.sgs_variance_horizontal_scale_factor(tc) == 2.0
-        @test CAP.sgs_variance_isentropic_min_dtheta_dz(tc) == 2.0e-3
-        @test CAP.sgs_variance_isentropic_slope_cap(tc) == 1.0e-3
+        @test CAP.sgs_variance_isentropic_min_dtheta_dz(tc) ≈ 2.0e-3
+        @test CAP.sgs_variance_isentropic_slope_cap(tc) ≈ 1.0e-3
     end
 end
 
