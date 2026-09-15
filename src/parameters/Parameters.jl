@@ -126,9 +126,9 @@ not yet define. `FT` is the float type; `VFT1`, `VFT2`, and `VTF3` are the
     (`sgs_geometric_stability_weight`): the resolved-gradient estimate is meant for
     stably stratified air where the turbulence closure has collapsed; where the
     resolved flow is turbulent the closure already carries the variance, so the term
-    is faded out. Its `N²` blends the moist and dry buoyancy gradients with the
-    grid-scale cloud indicator (condensate present or not). `0` (default) makes the
-    weight exactly 1 [-].
+    is faded out. Its `N²` is the saturated (moist-adiabatic) buoyancy gradient in
+    every cell, so the term is kept only in air that is absolutely stable to a
+    saturated displacement. `0` (default) makes the weight exactly 1 [-].
   - `sgs_variance_geometric_tke_scale`: Turbulence-kinetic-energy scale `tke₀` of the
     weight `w = tke₀ / (tke₀ + max(tke, 0))` that multiplies the geometric variance
     term (`sgs_geometric_tke_weight`), with `tke` the prognostic EDMF TKE: the term is

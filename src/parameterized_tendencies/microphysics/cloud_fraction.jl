@@ -226,8 +226,10 @@ Weight `w ∈ [0, 1]` applied to the geometric (resolved-gradient) SGS variance:
 
     Ri₊ = max(N², 0) / max(2 S², ε),    w = Ri₊² / (Ri₊² + Ri₀²)
 
-with `N²` the moist buoyancy gradient conditioned on the grid-scale cloud indicator
-(see `set_covariance_cache!`), `S²` the squared strain-rate norm and `Ri₀ = k Ri_crit`
+with `N²` the saturated (moist-adiabatic) buoyancy gradient evaluated in every cell,
+i.e. the moist Brunt–Väisälä frequency (see `set_covariance_cache!`; `N² ≤ 0` marks
+air that is conditionally or absolutely unstable to a saturated displacement, so the
+term acts only in absolutely stable air), `S²` the squared strain-rate norm and `Ri₀ = k Ri_crit`
 (`sgs_variance_geometric_Ri_factor` k). The geometric term estimates the variance of a
 field that the turbulence closure cannot represent — stably stratified,
 laminar-in-the-mean air where the mixing length has collapsed. Where the resolved flow
@@ -255,9 +257,8 @@ geometric term is faded where the closure itself reports an active turbulent (mi
 layer, whose variance the turbulence closure already represents, and kept where the
 TKE has collapsed (the stably stratified free troposphere, where the mixing length sits
 at its floor). The prognostic TKE is Picard-invariant within a step, carries the
-closure's memory (dissipation and transport) and does not depend on the
-cloud-condensate flag, so the weight is smooth in time and does not use the grid-scale
-cloud indicator. `tke` is clipped at zero (the prognostic field can be slightly
+closure's memory (dissipation and transport), so the weight is smooth in time.
+`tke` is clipped at zero (the prognostic field can be slightly
 negative). Requires prognostic TKE (`use_prognostic_tke`); checked at configuration
 time in `get_atmos` and again in `set_covariance_cache!`.
 """
@@ -529,14 +530,14 @@ function set_covariance_cache!(Y, p, thermo_params)
     # `p.precomputed.ᶜgeo_weight` (also the `sgs_geo_weight` diagnostic):
     #  * the Richardson (stability) weight `sgs_geometric_stability_weight`,
     #    Ri₀ = k Ri_crit with k = `sgs_variance_geometric_Ri_factor`. Its N² is the
-    #    model's chain-rule coefficients blended with the GRID-SCALE cloud indicator
-    #    (1 where grid-mean cloud condensate is present, 0 otherwise — the
-    #    `GridScaleCloud` cloud fraction) instead of the diagnosed SGS cloud fraction:
-    #    `ᶜbuoygrad` blends with cf 0.1-0.2 in cloud-topped mixed layers, so N² stays
-    #    positive there and the weight would not fade; with the indicator those layers
-    #    register as moist-unstable. `ᶜbuoygrad` itself is unchanged. Cloud condensate
-    #    only (`_grid_mean_cloud_condensate`): precipitation falling through
-    #    subsaturated air does not saturate it.
+    #    model's chain-rule coefficients evaluated with the SATURATED branch in every
+    #    cell (`blended_N²` with cloud fraction 1): the moist-adiabatic buoyancy
+    #    frequency, negative wherever the lapse rate is steeper than the moist adiabat
+    #    (cumulus and stratocumulus layers, convecting and dry-mixed layers), so the
+    #    term is kept only in air that is absolutely stable to a saturated displacement.
+    #    This replaces an earlier blend with the binary grid-scale cloud-condensate
+    #    flag, which kept conditionally unstable but unsaturated air (the trade-cumulus
+    #    layer) active. `ᶜbuoygrad` itself (diagnosed-cf blend) is unchanged.
     #  * the TKE weight `sgs_geometric_tke_weight`, tke₀ =
     #    `sgs_variance_geometric_tke_scale`, on the prognostic EDMF TKE `Y.c.ρtke / Y.c.ρ`.
     # Both default to off (k = 0, tke₀ = 0): then `ᶜw === nothing`, the term is added
@@ -557,21 +558,15 @@ function set_covariance_cache!(Y, p, thermo_params)
     FT_w = eltype(p.params)
     # [IsentropicHorizontalVariance] the term is defined only where a stably stratified
     # moist isentrope exists: it carries the validity weight 1[N² > 0] on the same
-    # saturation-conditioned N² the Richardson weight uses (no shear, no threshold).
+    # saturated N² the Richardson weight uses (no shear, no threshold).
     use_isen_step = use_geometric && isen_form
     ᶜN²_w = if use_ri_weight || use_isen_step
         (; ᶜbg_coeffs) = p.precomputed
-        ᶜq_lcl_gm, ᶜq_icl_gm =
-            _grid_mean_cloud_condensate(Y, p, p.atmos.microphysics_model)
         ᶜlg_w = Fields.local_geometry_field(Y.c)
         @. lazy(
             blended_N²(
                 ᶜbg_coeffs,
-                ifelse(
-                    TD.has_condensate(thermo_params, ᶜq_lcl_gm + ᶜq_icl_gm),
-                    one(FT_w),
-                    zero(FT_w),
-                ),
+                one(FT_w),
                 projected_vector_data(C3, ᶜgradᵥ_θ_liq_ice, ᶜlg_w),
                 projected_vector_data(C3, ᶜgradᵥ_q_tot, ᶜlg_w),
             ),
