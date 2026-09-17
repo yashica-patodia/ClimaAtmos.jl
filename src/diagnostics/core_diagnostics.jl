@@ -1216,6 +1216,17 @@ add_diagnostic_variable!(
     compute = compute_env_q_tot_temperature_correlation,
 )
 
+# Weight applied to the horizontal geometric SGS variance term: 1 where the term is on
+# and unweighted, 0 where it is off (see `set_covariance_cache!`).
+compute_sgs_geo_weight(_, cache, _) = cache.precomputed.ᶜgeo_weight
+
+add_diagnostic_variable!(
+    short_name = "sgs_geo_weight",
+    long_name = "Weight Applied to the Geometric SGS Variance Term",
+    units = "1",
+    compute = compute_sgs_geo_weight,
+)
+
 ###
 # Passive gas tracer A (3d)
 ###

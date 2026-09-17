@@ -259,6 +259,10 @@ function precomputed_quantities(Y, atmos)
         base = (;
             ᶜT′T′ = zeros(axes(Y.c)),
             ᶜq′q′ = zeros(axes(Y.c)),
+            # weight applied to the horizontal geometric variance term (see
+            # `set_covariance_cache!`; diagnostic `sgs_geo_weight`): 1 where the term
+            # is on and unweighted, 0 where the term is off (`c_Δx = 0`)
+            ᶜgeo_weight = zeros(axes(Y.c)),
         )
         uses_microphysics_quadrature_moments ?
         (; base..., ᶜsgs_moments = similar(Y.c, SGSMomentsNT)) :
